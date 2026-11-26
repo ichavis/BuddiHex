@@ -1,0 +1,14 @@
+[Unit]
+Description=BuddiHex rotator bridge
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+DynamicUser=yes
+EnvironmentFile=/etc/default/buddihex-bridge
+ExecStart=/usr/bin/python3 /opt/buddihex/buddihex_bridge.py --controller ${CONTROLLER_IP} --listen ${LISTEN_IP} --port ${TCP_PORT} --command-port ${COMMAND_PORT} --reply-port ${REPLY_PORT}
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

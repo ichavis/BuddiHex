@@ -1,0 +1,695 @@
+[
+    {
+        "id": "0eae7dec904813b6",
+        "type": "tab",
+        "label": "BuddiHex Rotator v1.7",
+        "disabled": false,
+        "info": "Native FlowFuse Dashboard 2 flow for mdannhardt/rotatorControllerESP8266.\nUses the firmware's PST-compatible <AZIMUTH> and <PST><STOP> UDP commands.\nEdit the CONFIG function and set the controller IP.\nCallsign lookup tries QRZ first, then checks AD1C Country Files (CTY.DAT) for an exact call or the longest matching prefix.\nThe panel's UPDATE COUNTRY LIST button refreshes the file from the Win-Test mirror. The first fallback also downloads it if needed.\nThe cache defaults to ~/.node-red/buddihex-cty.dat. Set BUDDIHEX_DXCC_FILE to an absolute path in a writable directory if using a different user directory. The DXCC Function uses Node.js built-in fs and path via Function node modules.\n\n\nThe full dashboard panel displays the compass and all controls inline.\n\nIn CONFIG choose direct (ESP8266 UDP) or remote (Pi bridge or standard Hamlib rotctld TCP). Use remoteHost and remotePort for either TCP endpoint. The flow automatically detects Pi bridge support and enables its live motion feedback and Set North when available.\n"
+    },
+    {
+        "id": "d2722baba58b1ebe",
+        "type": "comment",
+        "z": "0eae7dec904813b6",
+        "name": "Dashboard 2 — full Rotator Controller",
+        "info": "R6 preserves the flows-19/20 movement and calibration functions unchanged. Separate adapters isolate feedback from commands and targets. Run only one rotator tab. SET NORTH requires the antenna already physically pointing north and stopped.",
+        "x": 250,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "dbd83a0c67f7b1d0",
+        "type": "inject",
+        "z": "0eae7dec904813b6",
+        "name": "Initialize",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.5,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 100,
+        "y": 100,
+        "wires": [
+            [
+                "ac901bf2a776c0fd"
+            ]
+        ]
+    },
+    {
+        "id": "ac901bf2a776c0fd",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "CONFIG — choose Direct, Remote, or Pi",
+        "func": "const config = {\n    // Choose \"direct\" (ESP8266 UDP) or \"remote\" (Pi bridge or Hamlib rotctld TCP).\n    connectionType: \"direct\",\n    remoteHost: \"192.168.0.35\",\n    remotePort: 4533,\n    host: \"192.168.0.36\",   // CHANGE THIS\n    commandPort: 4210,\n    localReplyPort: 4211,\n    query: \"GET_BEARING\",\n    stop: \"<PST><STOP>\",\n    setPrefix: \"<AZIMUTH>\",\n    calibrate: \"CAL_DECL\",\n    qrzUsername: \"Call\",\n    qrzPassword: \"Password\",\n    stationLat: 41.12345,\n    stationLon: -73.12345\n};\nif (config.connectionType === \"pi\") config.connectionType = \"remote\";\nflow.set(\"rotatorConfig\", config);\nflow.set(\"rotatorProtocol\", config.connectionType === \"direct\" ? \"direct\" : null);\n\nconst state = {\n    online: false,\n    bearing: null,\n    target: null,\n    direction: \"STOP\",\n    stuck: false,\n    error: \"\",\n    lastReply: \"\",\n    lastCommand: \"\",\n    lastSeen: 0\n};\nflow.set(\"rotatorState\", state);\nnode.status({fill:\"green\",shape:\"dot\",text:config.connectionType});\nreturn {payload:state};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 350,
+        "y": 100,
+        "wires": [
+            [
+                "a3f2b64640f44e86",
+                "e796dd504097b4de"
+            ]
+        ]
+    },
+    {
+        "id": "b078b106abcd77a0",
+        "type": "inject",
+        "z": "0eae7dec904813b6",
+        "name": "Poll bearing every second",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 2,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 110,
+        "y": 170,
+        "wires": [
+            [
+                "a329330a031e44d2",
+                "e3fc0dda61ea575f"
+            ]
+        ]
+    },
+    {
+        "id": "a329330a031e44d2",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Build bearing query",
+        "func": "const cfg = flow.get(\"rotatorConfig\");\nif (!cfg) return null;\nreturn {\n    payload: Buffer.from(cfg.query),\n    ip: cfg.host,\n    port: cfg.commandPort\n};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 350,
+        "y": 160,
+        "wires": [
+            [
+                "e796dd504097b4de"
+            ]
+        ]
+    },
+    {
+        "id": "e3fc0dda61ea575f",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Offline watchdog",
+        "func": "let state = flow.get(\"rotatorState\") || {};\nconst wasOnline = !!state.online;\nstate.online = !!state.lastSeen && (Date.now() - state.lastSeen < 6500);\nif (!state.online) state.direction = \"STOP\";\nflow.set(\"rotatorState\", state);\nif (wasOnline !== state.online || !state.online) return {payload:state};\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 350,
+        "y": 220,
+        "wires": [
+            [
+                "a3f2b64640f44e86"
+            ]
+        ]
+    },
+    {
+        "id": "e796dd504097b4de",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Selected rotator connection",
+        "x": 790,
+        "y": 180,
+        "wires": [
+            [
+                "44bec3a4f69c3bc5",
+                "2edffa1079c9a084"
+            ]
+        ],
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "globalThis.rotatorLink?.close();",
+        "libs": [
+            {
+                "var": "net",
+                "module": "net"
+            },
+            {
+                "var": "dgram",
+                "module": "dgram"
+            }
+        ],
+        "func": "const cfg = flow.get(\"rotatorConfig\");\nif (!cfg || msg.topic === \"rotator-command-status\") return null;\nconst mode = cfg.connectionType;\nconst command = msg.payload && typeof msg.payload === \"object\" && !Buffer.isBuffer(msg.payload) ? cfg.query : String(msg.payload ?? \"\").trim();\nif (![cfg.query, cfg.stop, cfg.calibrate].includes(command) &&\n    !/^<AZIMUTH>\\d{1,3}$/.test(command)) return null;\n\nfunction markOffline() {\n    const state = flow.get(\"rotatorState\") || {};\n    delete state.pendingTarget;\n    state.routingViaNorth = false;\n    state.online = false;\n    state.lastSeen = 0;\n    if (mode === \"remote\") flow.set(\"rotatorProtocol\", null);\n    flow.set(\"rotatorState\", state);\n}\nfunction receive(line) {\n    node.send({payload:line});\n}\n\nif (!globalThis.rotatorLink) {\n    const link = {ready:false, buffer:\"\", close(){}};\n    if (mode === \"direct\") {\n        if (net.isIP(cfg.host) !== 4 || ![cfg.commandPort, cfg.localReplyPort].every(port => Number.isInteger(port) && port >= 1 && port <= 65535)) {\n            node.error(\"Direct mode requires an ESP8266 IPv4 address and valid UDP ports.\");\n            return null;\n        }\n        const socket = dgram.createSocket(\"udp4\");\n        link.close = () => { try { socket.close(); } catch {} };\n        link.send = value => socket.send(Buffer.from(value), Number(cfg.commandPort), cfg.host);\n        socket.on(\"error\", error => {\n            node.status({fill:\"red\",shape:\"ring\",text:error.message});\n            if (!link.ready) link.close();\n        });\n        socket.on(\"close\", () => {\n            if (globalThis.rotatorLink === link) {\n                globalThis.rotatorLink = null;\n                markOffline();\n            }\n        });\n        socket.on(\"message\", (data, peer) => {\n            if (peer.address === cfg.host && peer.port === Number(cfg.commandPort)) receive(String(data));\n        });\n        globalThis.rotatorLink = link;\n        socket.bind(Number(cfg.localReplyPort), () => {\n            link.ready = true;\n            node.status({fill:\"green\",shape:\"dot\",text:\"Direct UDP\"});\n            link.send(cfg.query);\n        });\n    } else if (mode === \"remote\") {\n        if (!String(cfg.remoteHost || \"\").trim() || !Number.isInteger(Number(cfg.remotePort)) ||\n            Number(cfg.remotePort) < 1 || Number(cfg.remotePort) > 65535) {\n            node.error(\"Set a remote hostname and TCP port from 1 to 65535 in CONFIG.\");\n            return null;\n        }\n        const socket = net.createConnection({host:cfg.remoteHost, port:Number(cfg.remotePort)});\n        globalThis.rotatorLink = link;\n        link.close = () => { clearTimeout(link.probe); socket.destroy(); };\n        socket.setEncoding(\"utf8\");\n        socket.setTimeout(8000, link.close);\n        function selectProtocol(protocol) {\n            if (link.ready) return;\n            clearTimeout(link.probe);\n            link.protocol = protocol;\n            link.ready = true;\n            flow.set(\"rotatorProtocol\", protocol);\n            node.status({fill:\"green\",shape:\"dot\",text:protocol === \"pi\" ? \"Remote Pi bridge\" : \"Remote Hamlib\"});\n            link.send(cfg.query);\n        }\n        socket.on(\"connect\", () => {\n            socket.write(\"BUDDIHEX\\n\");\n            link.probe = setTimeout(() => selectProtocol(\"hamlib\"), 1200);\n        });\n        socket.on(\"error\", error => node.status({fill:\"red\",shape:\"ring\",text:error.message}));\n        socket.on(\"close\", () => {\n            clearTimeout(link.probe);\n            if (globalThis.rotatorLink === link) {\n                globalThis.rotatorLink = null;\n                markOffline();\n                node.status({fill:\"yellow\",shape:\"ring\",text:\"Remote disconnected\"});\n            }\n        });\n        link.send = value => {\n            if (link.protocol === \"pi\") socket.write(value + \"\\n\");\n            else if (value === cfg.query) socket.write(\";p\\n\");\n            else if (value === cfg.stop) socket.write(\";S\\n\");\n            else if (value.startsWith(cfg.setPrefix)) socket.write(\";P \" + Number(value.slice(cfg.setPrefix.length)) + \" 0\\n\");\n        };\n        socket.on(\"data\", data => {\n            link.buffer += data;\n            if (link.buffer.length > 32768) return link.close();\n            let newline;\n            while ((newline = link.buffer.indexOf(\"\\n\")) >= 0) {\n                const line = link.buffer.slice(0,newline).trim();\n                link.buffer = link.buffer.slice(newline+1);\n                if (!line) continue;\n                if (!link.ready) {\n                    if (line === \"BUDDIHEX 1\") selectProtocol(\"pi\");\n                    else if (/^RPRT\\s+-\\d+$/.test(line)) selectProtocol(\"hamlib\");\n                    continue;\n                }\n                if (link.protocol === \"pi\") receive(line);\n                else {\n                    const azimuth = line.match(/(?:^|;)Azimuth:\\s*(-?\\d+(?:\\.\\d+)?)(?:;|$)/);\n                    const report = line.match(/(?:^|;)RPRT\\s+(-?\\d+)$/);\n                    const bearing = Number(azimuth?.[1]);\n                    if (azimuth && report?.[1] === \"0\" && bearing >= 0 && bearing <= 360) receive(\"AZ:\" + bearing);\n                    else if (report && report[1] !== \"0\" && line.includes(\";\")) receive(\"ERR: Hamlib returned \" + report[1]);\n                }\n            }\n        });\n    } else {\n        node.error('Choose \"direct\", \"remote\", or \"pi\" in CONFIG.');\n        return null;\n    }\n}\nconst link = globalThis.rotatorLink;\nif (link.ready) link.send(command);\nelse if (command !== cfg.query) node.warn(\"Rotator connection is not ready; command discarded.\");\nreturn null;"
+    },
+    {
+        "id": "44bec3a4f69c3bc5",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Parse rotator response",
+        "func": "const text = String(msg.payload || \"\").trim();\nif (!/^(GET_BEARING:|AZ:|ERR:)/.test(text) && !/error/i.test(text)) return null;\nlet state = flow.get(\"rotatorState\") || {};\n\nstate.lastReply = text;\nstate.lastSeen = Date.now();\nstate.online = true;\nstate.error = \"\";\nstate.stuck = false;\n\nif (text.startsWith(\"GET_BEARING:\")) {\n    const parts = text.split(\":\");\n    const bearing = Number(parts[1]);\n    if (Number.isFinite(bearing)) state.bearing = bearing;\n\n    if (parts.includes(\"CW\")) state.direction = \"CW\";\n    else if (parts.includes(\"CCW\")) state.direction = \"CCW\";\n    else state.direction = \"STOP\";\n\n    state.stuck = parts.some(p => String(p).toLowerCase() === \"stuck\");\n    if (bearing < 0 || parts.includes(\"Error!\")) state.error = text;\n}\nelse if (text.startsWith(\"AZ:\")) {\n    const bearing = parseFloat(text.substring(3));\n    if (Number.isFinite(bearing)) state.bearing = bearing;\n    state.direction = flow.get(\"rotatorProtocol\") === \"hamlib\" ? \"UNKNOWN\" : state.direction;\n}\nelse if (/error/i.test(text) || text.startsWith(\"ERR:\")) {\n    state.error = text;\n}\n\nlet followUp = null;\nconst north = Number(state.bearing);\nif (state.routingViaNorth && Number.isFinite(north) &&\n    (north <= 3 || north >= 357) && state.direction === \"STOP\") {\n    const finalTarget = Number(state.pendingTarget);\n    const cfg = flow.get(\"rotatorConfig\") || {};\n    if (Number.isFinite(finalTarget) && cfg.setPrefix) {\n        const finalCommand = cfg.setPrefix + String(Math.round(finalTarget) % 360);\n        followUp = {\n            payload: Buffer.from(finalCommand, \"utf8\"),\n            ip: cfg.host,\n            port: Number(cfg.commandPort)\n        };\n        state.lastCommand = finalCommand;\n    }\n    delete state.pendingTarget;\n    state.routingViaNorth = false;\n}\n\nflow.set(\"rotatorState\", state);\nnode.status({\n    fill: state.stuck || state.error ? \"red\" : \"green\",\n    shape: state.direction === \"STOP\" ? \"ring\" : \"dot\",\n    text: (state.bearing ?? \"?\") + \"° \" + state.direction\n});\nmsg.payload = state;\nreturn [msg, followUp];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 300,
+        "wires": [
+            [
+                "a3f2b64640f44e86"
+            ],
+            [
+                "e796dd504097b4de",
+                "a8270b6580bdf13d"
+            ]
+        ]
+    },
+    {
+        "id": "2edffa1079c9a084",
+        "type": "debug",
+        "z": "0eae7dec904813b6",
+        "name": "Raw rotator response",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 360,
+        "y": 350,
+        "wires": []
+    },
+    {
+        "id": "a5668df9c6308ed2",
+        "type": "ui-template",
+        "z": "0eae7dec904813b6",
+        "group": "73c68524fa389cb1",
+        "page": "",
+        "ui": "",
+        "name": "BuddiHex Rotator — full panel",
+        "order": 1,
+        "width": "6",
+        "height": "10",
+        "head": "",
+        "format": "<template>\n  <div class=\"rotator-card\">\n    <div class=\"rotator-header\">\n      <div class=\"rotator-title\">BuddiHex Antenna Rotator</div>\n      <div class=\"rotator-connection\"><span :class=\"['net-pill', rotorTelemetry.connectionType === 'direct' ? 'mode-direct' : 'net-on']\">{{ rotorTelemetry.connectionType === 'direct' ? 'Direct' : 'Remote' }}</span>\n      <div :class=\"['net-pill', rotorTelemetry.online ? 'net-on' : 'net-off']\">\n        {{ rotorTelemetry.online ? 'NET' : 'OFF' }}\n      </div></div>\n    </div>\n\n    <div class=\"compass-wrap\">\n      <svg class=\"compass\" viewBox=\"0 0 300 300\">\n        <defs>\n          <clipPath id=\"world-map-clip\">\n            <circle cx=\"150\" cy=\"150\" r=\"109\"/>\n          </clipPath>\n        </defs>\n        <circle cx=\"150\" cy=\"150\" r=\"128\" class=\"dial-ring\"/>\n        <circle cx=\"150\" cy=\"150\" r=\"112\" class=\"dial-inner\"/>\n\n        <g class=\"world-map\" clip-path=\"url(#world-map-clip)\" aria-hidden=\"true\">\n          <path d=\"M40 91 L53 74 72 66 91 69 100 79 92 88 81 91 76 104 64 107 57 120 46 116 36 103Z\"/>\n          <path d=\"M82 116 L99 121 108 139 105 157 96 174 91 197 82 218 74 198 76 179 68 163 67 142Z\"/>\n          <path d=\"M111 75 L122 65 136 67 142 78 132 84 120 82Z\"/>\n          <path d=\"M125 101 L145 91 166 94 176 87 203 87 221 98 246 104 258 117 246 127 226 123 213 131 195 128 184 139 174 135 166 119 151 116 143 126 130 121Z\"/>\n          <path d=\"M134 128 L153 123 168 137 171 158 162 174 155 199 143 215 132 194 124 173 120 151Z\"/>\n          <path d=\"M207 174 L222 165 242 172 251 187 239 202 218 204 204 190Z\"/>\n          <path d=\"M252 139 L260 135 264 145 257 151Z\"/>\n        </g>\n\n        <g v-for=\"n in 36\" :key=\"n\"\n           :transform=\"'rotate(' + ((n-1)*10) + ' 150 150)'\">\n          <line x1=\"150\" :y1=\"n % 3 === 1 ? 24 : 30\"\n                x2=\"150\" :y2=\"n % 3 === 1 ? 40 : 36\"\n                :class=\"n % 3 === 1 ? 'major-tick' : 'minor-tick'\"/>\n        </g>\n\n        <text x=\"150\" y=\"25\" text-anchor=\"middle\" class=\"cardinal\">N</text>\n        <text x=\"278\" y=\"157\" text-anchor=\"middle\" class=\"cardinal\">E</text>\n        <text x=\"150\" y=\"291\" text-anchor=\"middle\" class=\"cardinal\">S</text>\n        <text x=\"22\" y=\"157\" text-anchor=\"middle\" class=\"cardinal\">W</text>\n\n        <g v-if=\"rotorTelemetry.target !== null\"\n           :transform=\"'rotate(' + rotorTelemetry.target + ' 150 150)'\">\n          <line x1=\"150\" y1=\"48\" x2=\"150\" y2=\"67\" class=\"target-mark\"/>\n          <polygon points=\"143,53 157,53 150,43\" class=\"target-arrow\"/>\n        </g>\n\n        <g :transform=\"'rotate(' + displayBearing + ' 150 150)'\"\n           class=\"antenna-pointer\">\n          <polygon points=\"150,42 137,158 150,146 163,158\" class=\"pointer-main\"/>\n          <polygon points=\"150,258 143,151 157,151\" class=\"pointer-tail\"/>\n        </g>\n\n        <circle cx=\"150\" cy=\"150\" r=\"13\" class=\"hub\"/>\n        <circle cx=\"150\" cy=\"150\" r=\"5\" class=\"hub-center\"/>\n\n        <text x=\"150\" y=\"188\" text-anchor=\"middle\" class=\"bearing-text\">\n          {{ bearingText }}°\n        </text>\n      </svg>\n    </div>\n\n    <div class=\"refresh-status\">Current rotor: {{ bearingText }}° · Lookup target: {{ qrzBearing === null ? '—' : qrzBearing + '°' }}</div>\n    <div class=\"status-row\">\n      <div :class=\"['status-box', rotorTelemetry.direction === 'CCW' ? 'active' : '']\">CCW</div>\n      <div :class=\"['status-box', rotorTelemetry.direction === 'STOP' ? 'stop-active' : '']\">STOP</div>\n      <div :class=\"['status-box', rotorTelemetry.direction === 'CW' ? 'active' : '']\">CW</div>\n    </div>\n\n    <div v-if=\"rotorTelemetry.stuck || rotorTelemetry.error\" class=\"fault-box\">\n      {{ rotorTelemetry.stuck ? 'ROTATOR STUCK' : rotorTelemetry.error }}\n    </div>\n\n    <div class=\"qrz-search-row\">\n      <v-text-field\n        v-model=\"callsign\"\n        label=\"Callsign or prefix\"\n        density=\"compact\"\n        hide-details\n        clearable\n        @keyup.enter=\"lookupCallsign\">\n      </v-text-field>\n      <v-btn class=\"qrz-btn\" :loading=\"qrzLoading\" @click=\"lookupCallsign\">LOOK UP</v-btn>\n      <v-btn class=\"qrz-clear-btn\" variant=\"outlined\" @click=\"clearQrz\">CLEAR</v-btn>\n    </div>\n\n    <div v-if=\"qrzResult\" :class=\"['qrz-result', qrzResult.error ? 'qrz-error' : '']\">\n      <div v-if=\"qrzResult.error\">{{ qrzResult.error }}</div>\n      <div v-else>\n        <div><strong>{{ qrzResult.call }}</strong><span v-if=\"qrzResult.name\"> · {{ qrzResult.name }}</span></div>\n        <div>{{ [qrzResult.country, qrzResult.grid, qrzResult.source].filter(Boolean).join(' · ') }} · {{ qrzResult.distance }} km · bearing <strong>{{ qrzBearing }}°</strong></div>\n        <v-btn size=\"small\" class=\"go-btn\" @click=\"rotateToQrz\">ROTATE TO {{ qrzBearing }}°</v-btn>\n      </div>\n    </div>\n\n    <div class=\"target-row\">\n      <v-text-field\n        v-model=\"manualTargetText\"\n        label=\"Manual target (°)\"\n        type=\"number\"\n        min=\"0\"\n        max=\"360\"\n        step=\"1\"\n        density=\"compact\"\n        hide-details\n        @keyup.enter=\"goTarget\">\n      </v-text-field>\n      <v-btn class=\"go-btn\" @click=\"goTarget\">GO</v-btn>\n      <v-btn class=\"stop-btn\" @click=\"command('stop')\">STOP</v-btn>\n    </div>\n\n    <div class=\"preset-grid\">\n      <v-btn v-for=\"p in presets\" :key=\"p.key\"\n             size=\"small\" variant=\"tonal\"\n             @click=\"goPreset(p.value)\">\n        {{ p.label }}\n      </v-btn>\n    </div>\n\n    <div v-if=\"commandStatus\" class=\"command-sent\" :class=\"{ 'command-sent-error': commandStatus.error }\"\n         :title=\"commandStatus.error || commandStatus.message\" role=\"status\">\n      {{ commandStatus.error || commandStatus.message }}\n    </div>\n    <div class=\"bottom-row\">\n          <v-btn size=\"small\" variant=\"outlined\" :loading=\"dxccUpdating\" title=\"Download or update the DXCC country list\" @click=\"updateCountryList\">COUNTRY LIST</v-btn>\n      <v-btn size=\"small\" variant=\"outlined\" :loading=\"refreshing\" @click=\"refreshBearing\">REFRESH</v-btn>\n      <v-btn size=\"small\" variant=\"outlined\" @click=\"confirmCalibration\">SET NORTH</v-btn>\n    </div>\n    <div v-if=\"dxccStatus\" class=\"refresh-status\" role=\"status\">{{ dxccStatus }}</div>\n    <div class=\"refresh-status\">{{ lastUpdatedText }} · v1.7</div>\n  </div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return {\n      manualTargetText: \"\",\n      callsign: '',\n      qrzLoading: false,\n      dxccUpdating: false,\n      dxccStatus: '',\n      qrzResult: null,\n      commandStatus: null,\n      qrzBearing: null,\n      refreshing: false,\n      refreshRequestedAt: 0,\n      rotorTelemetry: {\n        connectionType: \"direct\",\n        online: false,\n        bearing: null,\n        target: null,\n        direction: 'STOP',\n        stuck: false,\n        error: ''\n      },\n      presets: [\n        {label:'S',value:180,key:'south-left'},\n        {label:'SW',value:225,key:'southwest'},\n        {label:'W',value:270,key:'west'},\n        {label:'NW',value:315,key:'northwest'},\n        {label:'N',value:0,key:'north'},\n        {label:'NE',value:45,key:'northeast'},\n        {label:'E',value:90,key:'east'},\n        {label:'SE',value:135,key:'southeast'},\n        {label:'S',value:180,key:'south-right'}\n      ]\n    }\n  },\n  mounted() {\n    this.command('query')\n  },\n  computed: {\n    displayBearing() {\n      const value = Number(this.rotorTelemetry.bearing)\n      return Number.isFinite(value) ? value : 0\n    },\n    bearingText() {\n      return this.rotorTelemetry.bearing === null || this.rotorTelemetry.bearing === undefined\n        ? '---'\n        : Math.round(Number(this.rotorTelemetry.bearing))\n    },\n    lastUpdatedText() {\n      const seen = Number(this.rotorTelemetry.lastSeen)\n      if (!Number.isFinite(seen) || seen <= 0) return 'No rotator response received'\n      return 'Last rotator response: ' + new Date(seen).toLocaleTimeString()\n    }\n  },\n  watch: {\n    msg: {\n      immediate: true,\n      deep: true,\n      handler(newMsg) {\n        if (newMsg && newMsg.topic === 'dxcc-status' && newMsg.payload) {\n          this.dxccUpdating = !!newMsg.payload.updating\n          this.dxccStatus = newMsg.payload.message\n          return\n        }\n        if (newMsg && newMsg.topic === 'rotator-command-status') {\n          this.commandStatus = Object.assign({}, newMsg.payload)\n          return\n        }\n        if (newMsg && newMsg.topic === 'qrz-result' && newMsg.payload &&\n            (typeof newMsg.payload.error === 'string' ||\n             (typeof newMsg.payload.call === 'string' &&\n              Number.isFinite(Number(newMsg.payload.bearing))))) {\n          this.qrzLoading = false\n          this.qrzResult = Object.assign({}, newMsg.payload)\n          this.qrzBearing = newMsg.payload && !newMsg.payload.error\n            ? Number(newMsg.payload.bearing)\n            : null\n          return\n        }\n        if (newMsg && newMsg.topic === 'rotator-telemetry' &&\n            newMsg.payload && newMsg.payload.rotator) {\n          const live = newMsg.payload.rotator\n          // Copy only rotor feedback. Never touch either editable/saved target.\n          const next = Object.assign({}, this.rotorTelemetry)\n          for (const key of ['online', 'bearing', 'target', 'direction', 'stuck',\n                             'error', 'lastSeen', 'lastReply', 'lastCommand', 'connectionType', 'rotatorProtocol']) {\n            if (Object.prototype.hasOwnProperty.call(live, key)) next[key] = live[key]\n          }\n          this.rotorTelemetry = next\n          const seen = Number(live.lastSeen)\n          if (this.refreshing && Number.isFinite(seen) && seen >= this.refreshRequestedAt) {\n            this.refreshing = false\n          }\n        }\n      }\n    }\n  },\n  methods: {\n    updateCountryList() {\n      this.dxccUpdating = true\n      this.send({topic:'dxcc-update', payload:{action:'update-country-list'}})\n    },\n    command(action, bearing) {\n      const payload = {action}\n      if (bearing !== undefined) payload.bearing = Number(bearing)\n      this.send({topic:'rotator-command', payload})\n    },\n    lookupCallsign() {\n      const call = String(this.callsign || '').trim().toUpperCase()\n      if (!call) return\n      this.callsign = call\n      this.qrzLoading = true\n      this.commandStatus = null\n      this.qrzResult = null\n      this.qrzBearing = null\n      this.send({topic:'qrz-lookup', payload:{action:'lookup', callsign:call}})\n    },\n    refreshBearing() {\n      this.refreshing = true\n      this.refreshRequestedAt = Date.now()\n      this.command('query')\n      window.setTimeout(() => {\n        if (this.refreshing && Date.now() - this.refreshRequestedAt >= 5000) {\n          this.refreshing = false\n        }\n      }, 5100)\n    },\n    clearQrz() {\n      this.callsign = ''\n      this.qrzLoading = false\n      this.qrzResult = null\n      this.qrzBearing = null\n      this.send({topic:'rotator-command', payload:{action:'clear-qrz'}})\n    },\n    rotateToQrz() {\n      if (!this.qrzResult || this.qrzResult.error) return\n      const bearing = Number(this.qrzBearing)\n      const callsign = String(this.qrzResult.call || '').trim().toUpperCase()\n      if (!Number.isFinite(bearing) || !callsign) return\n      this.send({\n        topic: 'rotator-command',\n        payload: {action: 'set-qrz', callsign, bearing}\n      })\n    },\n    goTarget() {\n      if (String(this.manualTargetText ?? '').trim() === '') return\n      const bearing = Number(this.manualTargetText)\n      if (Number.isFinite(bearing) && bearing >= 0 && bearing <= 360) {\n        this.command('set', Math.round(bearing))\n      }\n    },\n    goPreset(value) {\n      this.manualTargetText = String(value)\n      this.command('set', value)\n    },\n    confirmCalibration() {\n      if (this.rotorTelemetry.rotatorProtocol === 'hamlib') {\n        this.commandStatus = {error:'Set North requires the BuddiHex Pi bridge or a Direct connection.'}\n        return\n      }\n      if (this.rotorTelemetry.connectionType === 'remote' && !this.rotorTelemetry.rotatorProtocol) {\n        this.commandStatus = {error:'Wait for the Remote connection before setting north.'}\n        return\n      }\n      if (window.confirm('Is the antenna already physically pointing TRUE NORTH and stopped? This sets its current position as north; it does not turn the antenna.')) {\n        this.command('calibrate')\n      }\n    }\n  }\n}\n</script>\n\n<style>\n.rotator-card{\n  height:100%;\n  min-height:0;\n  box-sizing:border-box;\n  padding:8px 10px;\n  display:flex;\n  flex-direction:column;\n  gap:5px;\n  overflow:auto;\n}\n.rotator-header{\n  display:flex;\n  align-items:center;\n  justify-content:space-between;\n}\n.rotator-title{\n  font-size:1rem;\n  font-weight:800;\n  letter-spacing:.08em;\n}\n.rotator-connection{display:flex;align-items:center;gap:6px}\n.mode-direct{background:#1565c0;color:#fff}\n.net-pill{\n  width:62px;\n  box-sizing:border-box;\n  text-align:center;\n  border-radius:12px;\n  padding:2px 7px;\n  font-size:.75rem;\n  font-weight:800;\n}\n.net-on{background:#176b35;color:#d9ffe5}\n.net-off{background:#8d1e1e;color:#ffe1e1}\n.compass-wrap{\n  flex:1 0 112px;\n  min-height:112px;\n  display:flex;\n  justify-content:center;\n  align-items:center;\n}\n.compass{\n  display:block;\n  height:100%;\n  max-height:212px;\n  max-width:212px;\n  filter:drop-shadow(0 3px 7px rgba(0,0,0,.3));\n}\n.dial-ring{fill:#15191e;stroke:#6f7b87;stroke-width:4}\n.dial-inner{fill:#20262d;stroke:#3d4650;stroke-width:2}\n.world-map{fill:#4d6874;stroke:#78909c;stroke-width:1;stroke-linejoin:round;opacity:.52}\n.major-tick{stroke:#e6edf3;stroke-width:3}\n.minor-tick{stroke:#7f8b96;stroke-width:1.5}\n.cardinal{fill:#f4f7fa;font-size:17px;font-weight:800}\n.target-mark{stroke:#ffc107;stroke-width:4}\n.target-arrow{fill:#ffc107}\n.antenna-pointer{transition:transform .65s ease}\n.pointer-main{fill:#ef5350;stroke:#ffb3b1;stroke-width:1}\n.pointer-tail{fill:#607d8b}\n.hub{fill:#dce3e9;stroke:#26323c;stroke-width:3}\n.hub-center{fill:#26323c}\n.bearing-text{fill:#fff;font-size:25px;font-weight:800}\n.status-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}\n.status-box{\n  padding:3px;\n  border:1px solid #65717c;\n  border-radius:5px;\n  text-align:center;\n  font-size:.72rem;\n  font-weight:800;\n  opacity:.45;\n}\n.status-box.active{background:#1976d2;color:white;opacity:1}\n.status-box.stop-active{background:#546e7a;color:white;opacity:1}\n.fault-box{\n  background:#b71c1c;color:white;text-align:center;\n  padding:4px;border-radius:5px;font-weight:800;font-size:.75rem;\n}\n.qrz-search-row{display:grid;grid-template-columns:minmax(100px,1fr) 92px 72px;gap:6px;align-items:center}\n.qrz-btn{background:#1565c0!important;color:white!important}\n.qrz-result{padding:6px 8px;border:1px solid #3f7f54;border-radius:6px;background:rgba(38,110,60,.18);font-size:.78rem}\n.qrz-result .v-btn{margin-top:5px}\n.qrz-error{border-color:#b71c1c;background:rgba(183,28,28,.18);color:#ffcdd2}\n.target-row{\n  display:grid;\n  grid-template-columns:minmax(100px,1fr) 65px 72px;\n  gap:6px;\n  align-items:center;\n}\n.go-btn{background:#19763b!important;color:white!important}\n.stop-btn{background:#a52020!important;color:white!important}\n.preset-grid{display:grid;grid-template-columns:repeat(9,1fr);gap:4px}\n.preset-grid .v-btn{min-width:0!important;padding:0 3px!important}\n.command-sent{\n  min-width:0;\n  padding:0 3px;\n  border:1px solid #83909b;\n  border-radius:3px;\n  font-size:.68rem;\n  line-height:1.15;\n  white-space:nowrap;\n  overflow:hidden;\n  text-overflow:ellipsis;\n}\n.command-sent-error{color:#ffcdd2;white-space:normal;overflow-wrap:anywhere}\n.bottom-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}\n.bottom-row .v-btn{min-width:0;padding-inline:2px;letter-spacing:0;font-size:.68rem}\n.refresh-status{text-align:center;font-size:.68rem;opacity:.7}\n@media(max-width:520px){\n  .preset-grid{grid-template-columns:repeat(4,1fr)}\n}\n</style>",
+        "storeOutMessages": false,
+        "passthru": false,
+        "resendOnRefresh": false,
+        "templateScope": "local",
+        "className": "",
+        "x": 670,
+        "y": 360,
+        "wires": [
+            [
+                "8865c7d3e345672f"
+            ]
+        ]
+    },
+    {
+        "id": "019fa204a4b1f6f5",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Build UI command",
+        "func": "const cfg = flow.get(\"rotatorConfig\");\nif (!cfg) {\n    node.error(\"Rotator configuration is not initialized\", msg);\n    return null;\n}\n\nconst input = msg.payload || {};\nconst action = String(input.action || \"\").toLowerCase();\nif (action === \"clear-qrz\") {\n    flow.set(\"qrzTarget\", null);\n    flow.set(\"lookupID\", null);\n    return null;\n}\nif (action === \"lookup\") {\n    const callsign = String(input.callsign || \"\").trim().toUpperCase();\n    // A failed/new search must never leave an older QRZ target armed.\n    flow.set(\"qrzTarget\", null);\n    flow.set(\"lookupID\", msg._msgid);\n    return [null, {topic:\"qrz-login\", lookupID:msg._msgid, payload:{callsign}}];\n}\n\nlet commandText = \"\";\nlet target = null;\nlet state = flow.get(\"rotatorState\") || {};\n\nif (action === \"set\" || action === \"set-qrz\") {\n    let bearing;\n    if (action === \"set-qrz\") {\n        const qrzTarget = flow.get(\"qrzTarget\");\n        const requestedCall = String(input.callsign || \"\").trim().toUpperCase();\n        if (!qrzTarget || !Number.isFinite(Number(qrzTarget.bearing)) ||\n            !requestedCall || requestedCall !== String(qrzTarget.callsign || \"\").toUpperCase()) {\n            node.warn(\"QRZ target is missing or no longer matches the displayed callsign\");\n            return null;\n        }\n        bearing = Number(qrzTarget.bearing);\n    } else {\n        bearing = Number(input.bearing);\n    }\n    if (!Number.isFinite(bearing) || bearing < 0 || bearing > 360) {\n        node.warn(\"Rejected invalid bearing: \" + input.bearing);\n        return null;\n    }\n    target = Math.round(bearing) % 360;\n\n    // The permitted travel arc goes through north, never through/past south.\n    // If current and requested bearings are on opposite sides of south, first\n    // park at north and send the final target after the rotor reports STOP.\n    const current = Number(state.bearing);\n    const currentEast = Number.isFinite(current) && current > 0 && current < 180;\n    const currentWest = Number.isFinite(current) && current > 180 && current < 360;\n    const targetEast = target > 0 && target < 180;\n    const targetWest = target > 180 && target < 360;\n    const needsNorthRoute = (currentEast && targetWest) || (currentWest && targetEast);\n    if (flow.get(\"rotatorProtocol\") === \"hamlib\" && (!state.online || state.bearing == null || needsNorthRoute)) {\n        return [{topic:\"rotator-command-status\", payload:{error:needsNorthRoute\n            ? \"Turn to north first in Hamlib mode, then select the final heading.\"\n            : \"Wait for a live Hamlib bearing before turning.\"}}, null];\n    }\n\n    state.target = target;\n    if (needsNorthRoute) {\n        state.pendingTarget = target;\n        state.routingViaNorth = true;\n        commandText = cfg.setPrefix + \"0\";\n    } else {\n        delete state.pendingTarget;\n        state.routingViaNorth = false;\n        commandText = cfg.setPrefix + String(target);\n    }\n}\nelse if (action === \"stop\") {\n    commandText = cfg.stop;\n    delete state.pendingTarget;\n    state.routingViaNorth = false;\n}\nelse if (action === \"query\") commandText = cfg.query;\nelse if (action === \"calibrate\") {\n    if (cfg.connectionType === \"remote\" && flow.get(\"rotatorProtocol\") !== \"pi\") {\n        return [{topic:\"rotator-command-status\", payload:{error:\"Set North requires a connected BuddiHex Pi bridge or a Direct connection.\"}}, null];\n    }\n    commandText = cfg.calibrate;\n}\nelse {\n    node.warn(\"Rejected unknown rotator action: \" + action);\n    return null;\n}\n\nstate.lastCommand = commandText;\nflow.set(\"rotatorState\", state);\n\nnode.status({fill:\"blue\", shape:\"dot\", text:\"TX \" + commandText});\nreturn [{\n    payload: Buffer.from(commandText, \"utf8\"),\n    ip: cfg.host,\n    port: Number(cfg.commandPort)\n}, null];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 460,
+        "wires": [
+            [
+                "e796dd504097b4de",
+                "7b935b8dc1e13555",
+                "a8270b6580bdf13d"
+            ],
+            [
+                "c5d783d6b7436e62"
+            ]
+        ]
+    },
+    {
+        "id": "c3ba9d41a9e7c6f1",
+        "type": "comment",
+        "z": "0eae7dec904813b6",
+        "name": "QRZ callsign → great-circle bearing (settings in CONFIG)",
+        "info": "Set qrzUsername, qrzPassword, stationLat and stationLon in the CONFIG function. Coordinates must be your actual antenna location. QRZ XML access requires a suitable subscription for full location data. HTTP connection errors are displayed on the dashboard.",
+        "x": 390,
+        "y": 540,
+        "wires": []
+    },
+    {
+        "id": "c5d783d6b7436e62",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Validate + build QRZ login",
+        "func": "const cfg = flow.get(\"rotatorConfig\") || {};\nconst callsign = String(msg.payload?.callsign || \"\").trim().toUpperCase();\nconst result = error => [null, {lookupID:msg.lookupID, payload:{error}}];\nif (!/^[A-Z0-9]+(?:\\/[A-Z0-9]+)*$/.test(callsign) || callsign.length > 15) {\n    return result(\"Enter a valid callsign or prefix.\");\n}\nif (!Number.isFinite(cfg.stationLat) || cfg.stationLat < -90 || cfg.stationLat > 90 ||\n    !Number.isFinite(cfg.stationLon) || cfg.stationLon < -180 || cfg.stationLon > 180) {\n    return result(\"Set valid stationLat and stationLon numbers in the CONFIG function.\");\n}\nif (!cfg.qrzUsername || !cfg.qrzPassword) {\n    return [null, null, {topic:\"dxcc-fallback\", callsign, lookupID:msg.lookupID,\n        qrzFailure:\"QRZ credentials are missing from CONFIG.\"}];\n}\nmsg.callsign = callsign;\nmsg.url = \"https://xmldata.qrz.com/xml/current/?\" +\n    \"username=\" + encodeURIComponent(cfg.qrzUsername) +\n    \"&password=\" + encodeURIComponent(cfg.qrzPassword) +\n    \"&agent=NodeRED-BuddiHex-v1.1\";\nmsg.method = \"GET\";\nmsg.requestTimeout = 15000;\ndelete msg.payload;\nreturn [msg, null];",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 220,
+        "y": 590,
+        "wires": [
+            [
+                "fd95b16c0ee5c0cd"
+            ],
+            [
+                "177a928fe056aa04"
+            ],
+            [
+                "177a928fe056aa01"
+            ]
+        ]
+    },
+    {
+        "id": "fd95b16c0ee5c0cd",
+        "type": "http request",
+        "z": "0eae7dec904813b6",
+        "name": "QRZ XML login",
+        "method": "use",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 470,
+        "y": 590,
+        "wires": [
+            [
+                "3a4e5c74756d091d"
+            ]
+        ]
+    },
+    {
+        "id": "3a4e5c74756d091d",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Parse session + build lookup",
+        "func": "const fallback = error => ({topic:\"dxcc-fallback\", callsign:msg.callsign,\n    lookupID:msg.lookupID, qrzFailure:error});\nif (msg.statusCode && Number(msg.statusCode) !== 200) {\n    return [null, fallback(\"QRZ login HTTP error: \" + msg.statusCode)];\n}\nconst xml = String(msg.payload || \"\");\nconst read = tag => {\n    const match = xml.match(new RegExp(\"<(?:\\\\w+:)?\" + tag + \">([\\\\s\\\\S]*?)<\\\\/(?:\\\\w+:)?\" + tag + \">\", \"i\"));\n    return match ? match[1].replace(/&amp;/g,\"&\").replace(/&lt;/g,\"<\").replace(/&gt;/g,\">\").trim() : \"\";\n};\nconst error = read(\"Error\");\nconst key = read(\"Key\");\nif (!key) return [null, fallback(error || \"QRZ login failed. Check credentials and XML access.\")];\n\nmsg.url = \"https://xmldata.qrz.com/xml/current/?s=\" +\n    encodeURIComponent(key) + \"&callsign=\" + encodeURIComponent(msg.callsign);\nmsg.method = \"GET\";\ndelete msg.payload;\ndelete msg.headers;\ndelete msg.statusCode;\ndelete msg.responseUrl;\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 710,
+        "y": 590,
+        "wires": [
+            [
+                "0c31b582140c036b"
+            ],
+            [
+                "177a928fe056aa01"
+            ]
+        ]
+    },
+    {
+        "id": "0c31b582140c036b",
+        "type": "http request",
+        "z": "0eae7dec904813b6",
+        "name": "QRZ callsign lookup",
+        "method": "use",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 970,
+        "y": 590,
+        "wires": [
+            [
+                "cb7d909fec6ff648"
+            ]
+        ]
+    },
+    {
+        "id": "cb7d909fec6ff648",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Parse QRZ station location",
+        "func": "const fallback = error => ({topic:\"dxcc-fallback\", callsign:msg.callsign,\n    lookupID:msg.lookupID, qrzFailure:error});\nif (msg.statusCode && Number(msg.statusCode) !== 200) {\n    return fallback(\"QRZ lookup HTTP error: \" + msg.statusCode);\n}\nconst xml = String(msg.payload || \"\");\nconst read = tag => {\n    const match = xml.match(new RegExp(\"<(?:\\\\w+:)?\" + tag + \">([\\\\s\\\\S]*?)<\\\\/(?:\\\\w+:)?\" + tag + \">\", \"i\"));\n    return match ? match[1].replace(/&amp;/g,\"&\").replace(/&lt;/g,\"<\").replace(/&gt;/g,\">\").trim() : \"\";\n};\nconst apiError = read(\"Error\");\nif (apiError) return fallback(apiError);\n\n// A successful HTTP response can still contain only a Session block. Do not\n// fall through to locator parsing unless QRZ actually returned a Callsign.\nconst hasCallsignRecord = /<(?:\\w+:)?Callsign(?:\\s[^>]*)?>[\\s\\S]*?<\\/(?:\\w+:)?Callsign>/i.test(xml);\nconst returnedCall = read(\"call\");\nif (!hasCallsignRecord || !returnedCall) {\n    return fallback(\"Callsign not found in QRZ.\");\n}\n\nconst latText = read(\"lat\");\nconst lonText = read(\"lon\");\nlet lat = latText ? Number(latText) : NaN;\nlet lon = lonText ? Number(lonText) : NaN;\nconst grid = read(\"grid\").toUpperCase();\n\nfunction maidenhead(locator) {\n    const g = String(locator || \"\").toUpperCase();\n    if (!/^[A-R]{2}[0-9]{2}([A-X]{2})?$/.test(g)) return null;\n    let x = (g.charCodeAt(0)-65)*20 - 180 + Number(g[2])*2;\n    let y = (g.charCodeAt(1)-65)*10 - 90 + Number(g[3]);\n    let width = 2, height = 1;\n    if (g.length >= 6) {\n        x += (g.charCodeAt(4)-65) * (2/24);\n        y += (g.charCodeAt(5)-65) * (1/24);\n        width = 2/24; height = 1/24;\n    }\n    return {lat:y+height/2, lon:x+width/2};\n}\nif (!Number.isFinite(lat) || lat < -90 || lat > 90 ||\n    !Number.isFinite(lon) || lon < -180 || lon > 180) {\n    const point = maidenhead(grid);\n    if (!point) return fallback(read(\"Message\") || \"QRZ returned no usable latitude/longitude or grid locator. Check QRZ XML subscription access.\");\n    lat = point.lat; lon = point.lon;\n}\n\nreturn {lookupID:msg.lookupID, payload:{\n    call:returnedCall, name:read(\"name_fmt\") || [read(\"fname\"),read(\"name\")].filter(Boolean).join(\" \"),\n    grid, country:read(\"country\") || read(\"land\"), lat, lon, source:\"QRZ\"\n}};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1230,
+        "y": 590,
+        "wires": [
+            [
+                "177a928fe056aa01",
+                "177a928fe056aa04"
+            ]
+        ]
+    },
+    {
+        "id": "83188418ebd28b2f",
+        "type": "catch",
+        "z": "0eae7dec904813b6",
+        "name": "Catch QRZ connection errors",
+        "scope": [
+            "fd95b16c0ee5c0cd",
+            "0c31b582140c036b"
+        ],
+        "uncaught": false,
+        "x": 250,
+        "y": 670,
+        "wires": [
+            [
+                "997f27ba237a8493"
+            ]
+        ]
+    },
+    {
+        "id": "997f27ba237a8493",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Fallback after QRZ connection error",
+        "func": "const fallback = error => ({topic:\"dxcc-fallback\", callsign:msg.callsign,\n    lookupID:msg.lookupID, qrzFailure:error});\nreturn fallback(\"QRZ connection failed or timed out.\");",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 560,
+        "y": 670,
+        "wires": [
+            [
+                "177a928fe056aa01"
+            ]
+        ]
+    },
+    {
+        "id": "7b935b8dc1e13555",
+        "type": "debug",
+        "z": "0eae7dec904813b6",
+        "name": "BuildUICommand Debug",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1110,
+        "y": 440,
+        "wires": []
+    },
+    {
+        "id": "8865c7d3e345672f",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Accept explicit UI actions only",
+        "func": "const input = msg.payload;\nif (!input || typeof input !== \"object\" || Array.isArray(input)) return null;\nconst action = String(input.action || \"\").toLowerCase();\nif (msg.topic === \"dxcc-update\" && action === \"update-country-list\") {\n    return [null, null, {topic:\"dxcc-update\"}];\n}\nconst known = [\"lookup\", \"clear-qrz\", \"set\", \"set-qrz\", \"stop\", \"query\", \"calibrate\"];\nif (![\"rotator-command\", \"qrz-lookup\"].includes(msg.topic) || !known.includes(action)) return null;\nconst fail = error => [null, {topic:\"rotator-command-status\",payload:{error}}];\nif (action === \"calibrate\") {\n    const state = flow.get(\"rotatorState\") || {};\n    if (!state.online || !state.lastSeen || Date.now()-state.lastSeen > 6500 ||\n        state.direction !== \"STOP\" || state.routingViaNorth || state.stuck || state.error) {\n        return fail(\"North was not calibrated. Press STOP and wait for fresh, stopped rotor feedback. The antenna must already physically point true north.\");\n    }\n}\nif ((action === \"set\" && (input.bearing === null || input.bearing === undefined || String(input.bearing).trim() === \"\")) ||\n    (action === \"set\" && (!Number.isFinite(Number(input.bearing)) || Number(input.bearing)<0 || Number(input.bearing)>360))) {\n    return fail(\"Enter a target bearing from 0 to 360 degrees.\");\n}\nif (action === \"set-qrz\") {\n    const saved = flow.get(\"qrzTarget\");\n    if (!saved || !Number.isFinite(Number(saved.bearing)) ||\n        String(saved.callsign || \"\").toUpperCase() !== String(input.callsign || \"\").toUpperCase()) {\n        return fail(\"Look up the callsign again before pressing ROTATE TO. No movement was sent.\");\n    }\n}\nreturn [{topic:action === \"lookup\" ? \"qrz-lookup\" : \"rotator-command\", payload:Object.assign({},input)}, null];",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 430,
+        "wires": [
+            [
+                "019fa204a4b1f6f5"
+            ],
+            [
+                "a5668df9c6308ed2"
+            ],
+            [
+                "177a928fe056aa01"
+            ]
+        ]
+    },
+    {
+        "id": "a3f2b64640f44e86",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Envelope live rotor feedback",
+        "func": "if (!msg.payload || typeof msg.payload !== \"object\") return null;\n// A new message removes any inherited QRZ topic or fields.\nreturn {topic:\"rotator-telemetry\",payload:{rotator:{...JSON.parse(JSON.stringify(msg.payload)), rotatorProtocol:flow.get(\"rotatorProtocol\") || null, connectionType:(flow.get(\"rotatorConfig\") || {}).connectionType || \"direct\"}}};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 300,
+        "wires": [
+            [
+                "a5668df9c6308ed2"
+            ]
+        ]
+    },
+    {
+        "id": "a8270b6580bdf13d",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Display outgoing rotor command",
+        "func": "if (msg.topic === \"rotator-command-status\") return msg;\nconst command = Buffer.isBuffer(msg.payload) ? msg.payload.toString(\"utf8\") : String(msg.payload || \"\");\nconst cfg = flow.get(\"rotatorConfig\") || {};\nconst state = flow.get(\"rotatorState\") || {};\nlet message = \"Command sent: \" + command;\nif (command === cfg.calibrate) message = \"Set-current-position-as-north command sent. No rotation command was sent by this calibration action.\";\nelse if (command.startsWith(cfg.setPrefix || \"<AZIMUTH>\")) {\n    message += state.routingViaNorth ? \" — north waypoint; final target \" + state.pendingTarget + \"° is queued.\" : \" — awaiting rotor feedback.\";\n}\nreturn {topic:\"rotator-command-status\",payload:{command,message}};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1000,
+        "y": 450,
+        "wires": [
+            [
+                "a5668df9c6308ed2"
+            ]
+        ]
+    },
+    {
+        "id": "73c68524fa389cb1",
+        "type": "ui-group",
+        "name": "Buddihex Rotator",
+        "page": "cb3f2baf152ea562",
+        "width": 6,
+        "height": 1,
+        "order": 6,
+        "showTitle": false,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "cb3f2baf152ea562",
+        "type": "ui-page",
+        "name": "WA1W Pi1 - DB2 Station Integration",
+        "ui": "6b54332b0ba2fdcd",
+        "path": "/page1",
+        "icon": "home",
+        "layout": "grid",
+        "theme": "5e9f42db43c207a8",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": "0",
+                "cols": "3"
+            },
+            {
+                "name": "Tablet",
+                "px": "204",
+                "cols": "6"
+            },
+            {
+                "name": "Small Desktop",
+                "px": "768",
+                "cols": "9"
+            },
+            {
+                "name": "Desktop",
+                "px": "1024",
+                "cols": "24"
+            }
+        ],
+        "tabs": [],
+        "order": 1,
+        "className": "",
+        "visible": true,
+        "disabled": false
+    },
+    {
+        "id": "6b54332b0ba2fdcd",
+        "type": "ui-base",
+        "name": "WA1W Station Automation",
+        "path": "/dashboard",
+        "appIcon": "",
+        "includeClientData": false,
+        "acceptsClientConfig": [
+            "ui-notification",
+            "ui-control"
+        ],
+        "showPathInSidebar": false,
+        "headerContent": "page",
+        "navigationStyle": "default",
+        "titleBarStyle": "default",
+        "showReconnectNotification": true,
+        "notificationDisplayTime": 1,
+        "showDisconnectNotification": true,
+        "allowInstall": false
+    },
+    {
+        "id": "5e9f42db43c207a8",
+        "type": "ui-theme",
+        "name": "Default Theme",
+        "colors": {
+            "surface": "#000000",
+            "primary": "#0094ce",
+            "bgPage": "#000000",
+            "groupBg": "#000000",
+            "groupOutline": "#ffffff"
+        },
+        "sizes": {
+            "density": "default",
+            "pagePadding": "12px",
+            "groupGap": "12px",
+            "groupBorderRadius": "4px",
+            "widgetGap": "12px"
+        }
+    },
+    {
+        "id": "3e74b9fe74dd94c5",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "@flowfuse/node-red-dashboard": "1.34.1"
+        }
+    },
+    {
+        "id": "177a928fe056aa04",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "Calculate and publish lookup bearing",
+        "func": "if (!msg.lookupID || msg.lookupID !== flow.get(\"lookupID\") || !msg.payload) return null;\nconst cfg = flow.get(\"rotatorConfig\") || {};\nconst result = msg.payload;\nif (result.error) return {topic:\"qrz-result\", payload:result};\nconst {lat, lon} = result;\nconst rad = d => d * Math.PI / 180;\nconst lat1 = rad(cfg.stationLat), lat2 = rad(lat);\nconst dLon = rad(lon - cfg.stationLon);\nconst y = Math.sin(dLon) * Math.cos(lat2);\nconst x = Math.cos(lat1)*Math.sin(lat2) - Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);\nconst bearing = Math.round((Math.atan2(y, x) * 180 / Math.PI + 360) % 360) % 360;\nconst dLat = lat2 - lat1;\nconst a = Math.max(0, Math.min(1, Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2));\nconst distance = Math.round(6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));\n\nflow.set(\"qrzTarget\", {callsign:result.call, bearing, createdAt:Date.now()});\nreturn {topic:\"qrz-result\", payload:{...result, bearing, distance}};\n",
+        "wires": [
+            [
+                "a5668df9c6308ed2"
+            ]
+        ],
+        "outputs": 1,
+        "x": 1280,
+        "y": 690,
+        "timeout": 0,
+        "noerr": 0,
+        "finalize": "",
+        "initialize": "",
+        "libs": []
+    },
+    {
+        "id": "177a928fe056aa01",
+        "type": "function",
+        "z": "0eae7dec904813b6",
+        "name": "DXCC cache, update and match",
+        "func": "const fallback = msg.topic === \"dxcc-fallback\";\nconst refresh = msg.topic === \"dxcc-update\";\nif (fallback && (!msg.lookupID || msg.lookupID !== flow.get(\"lookupID\"))) return null;\nconst status = (message, updating = false) => ({topic:\"dxcc-status\", payload:{message, updating}});\nconst report = (request, payload) => ({lookupID:request.lookupID, payload});\nconst file = env.get(\"BUDDIHEX_DXCC_FILE\") ||\n    path.join(env.get(\"HOME\") || \".\", \".node-red\", \"buddihex-cty.dat\");\n\nfunction parse(data) {\n    const text = Buffer.isBuffer(data) ? data.toString(\"latin1\") : String(data ?? \"\");\n    const records = text.split(\";\");\n    if (records.pop().trim() || records.length < 300) throw Error(\"Incomplete CTY.DAT\");\n    const exact = Object.create(null);\n    const prefixes = Object.create(null);\n    let count = 0;\n    const coordinate = (country, lat, west) => {\n        if (!lat.trim() || !west.trim() || !(Math.abs(Number(lat)) <= 90) ||\n            !(Math.abs(Number(west)) <= 180)) throw Error(\"Invalid CTY.DAT coordinates\");\n        return {country, lat:Number(lat), lon:-Number(west)};\n    };\n    for (const record of records) {\n        const fields = record.split(\":\").map(field => field.trim());\n        if (fields.length !== 9 || !fields[0] || !fields[7]) throw Error(\"Invalid CTY.DAT record\");\n        if (fields[7].startsWith(\"*\")) continue;\n        const location = coordinate(fields[0], fields[4], fields[5]);\n        prefixes[fields[7].toUpperCase()] = location;\n        count += 1;\n        for (const entry of fields[8].split(\",\")) {\n            const token = entry.trim().toUpperCase();\n            const key = token.match(/^=?[A-Z0-9/]+/)?.[0];\n            if (!key) throw Error(\"Invalid CTY.DAT prefix\");\n            const point = token.match(/<([^/<>]+)\\/([^<>]+)>/);\n            const target = point ? coordinate(location.country, point[1], point[2]) : location;\n            if (key.startsWith(\"=\")) exact[key.slice(1)] = target;\n            else prefixes[key] = target;\n        }\n    }\n    if (count < 300) throw Error(\"Incomplete DXCC list\");\n    return {exact, prefixes, count};\n}\n\nfunction resolve(request, list) {\n    if (!request || request.lookupID !== flow.get(\"lookupID\")) return null;\n    const call = request.callsign;\n    let match = list.exact[call];\n    for (let length = call.length; !match && length > 0; length--) {\n        match = list.prefixes[call.slice(0, length)];\n    }\n    return report(request, match\n        ? {call, grid:\"\", name:\"\", source:\"DXCC estimate\", ...match}\n        : {error:request.qrzFailure + \" No DXCC match for \" + call + \".\"});\n}\n\nif (fallback) {\n    try {\n        const cached = parse(fs.readFileSync(file));\n        return [null, null, resolve(msg, cached)];\n    } catch {\n        context.set(\"waiting\", {lookupID:msg.lookupID, callsign:msg.callsign, qrzFailure:msg.qrzFailure});\n    }\n}\n\nif (refresh || fallback) {\n    if (context.get(\"downloadID\")) {\n        return [null, status(\"Country list download in progress…\", true), null];\n    }\n    context.set(\"downloadID\", msg._msgid);\n    return [{topic:\"dxcc-download\", downloadID:msg._msgid, method:\"GET\",\n        url:\"https://download.win-test.com/files/country/CTY.DAT\", requestTimeout:15000},\n        status(\"Downloading country list…\", true), null];\n}\n\nif (msg.topic !== \"dxcc-download\" || !msg.downloadID ||\n    msg.downloadID !== context.get(\"downloadID\")) return null;\nconst waiting = context.get(\"waiting\");\ncontext.set(\"waiting\", null);\ncontext.set(\"downloadID\", null);\nlet list;\nlet temp;\ntry {\n    if (msg.error || Number(msg.statusCode) !== 200) throw Error(\"Download failed\");\n    list = parse(msg.payload);\n    fs.mkdirSync(path.dirname(file), {recursive:true});\n    temp = file + \".\" + msg.downloadID + \".tmp\";\n    fs.writeFileSync(temp, msg.payload, {flag:\"wx\"});\n    fs.renameSync(temp, file);\n    return [null, status(\"Updated \" + list.count + \" DXCC entities.\"), resolve(waiting, list)];\n} catch (error) {\n    if (temp) {\n        try { fs.unlinkSync(temp); } catch {}\n    }\n    const detail = list ? \"Could not save the country list. Check the cache directory permissions.\"\n        : \"Country list download failed or returned invalid data.\";\n    return [null, status(detail), list ? resolve(waiting, list) :\n        (waiting ? report(waiting, {error:waiting.qrzFailure + \" \" + detail}) : null)];\n}\n",
+        "wires": [
+            [
+                "177a928fe056aa02"
+            ],
+            [
+                "a5668df9c6308ed2"
+            ],
+            [
+                "177a928fe056aa04"
+            ]
+        ],
+        "outputs": 3,
+        "x": 720,
+        "y": 750,
+        "timeout": 0,
+        "noerr": 0,
+        "finalize": "",
+        "initialize": "context.set(\"downloadID\", null);\ncontext.set(\"waiting\", null);",
+        "libs": [
+            {
+                "var": "fs",
+                "module": "fs"
+            },
+            {
+                "var": "path",
+                "module": "path"
+            }
+        ]
+    },
+    {
+        "id": "177a928fe056aa02",
+        "type": "http request",
+        "z": "0eae7dec904813b6",
+        "name": "Download CTY.DAT",
+        "method": "use",
+        "ret": "bin",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 1010,
+        "y": 750,
+        "wires": [
+            [
+                "177a928fe056aa01"
+            ]
+        ]
+    },
+    {
+        "id": "177a928fe056aa03",
+        "type": "catch",
+        "z": "0eae7dec904813b6",
+        "name": "Catch CTY.DAT request errors",
+        "scope": [
+            "177a928fe056aa02"
+        ],
+        "uncaught": false,
+        "x": 410,
+        "y": 800,
+        "wires": [
+            [
+                "177a928fe056aa01"
+            ]
+        ]
+    }
+]

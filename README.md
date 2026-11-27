@@ -1,41 +1,42 @@
-# BuddiHex Rotator v1.7 and Raspberry Pi bridge
+# BuddiHex Rotator
 
-Use the Pi as the single connection to the ESP8266. SmartSDR connects to the Pi using Hamlib rotctld. BuddiHex for Mac uses the same TCP port with a BuddiHex connection that preserves the ESP8266's bearing, direction, fault and calibration feedback.
+Control a BuddiHex R4 antenna rotator from a native macOS app or a Node-RED Dashboard 2 panel. Both interfaces show the current bearing, support manual and preset headings, and can look up a bearing by callsign using QRZ or the DXCC country list.
 
-## Install on Raspberry Pi OS
+## Downloads
 
-1. Copy the `Pi` folder to the Raspberry Pi and open a terminal in that folder.
-2. Edit `buddihex-bridge.conf`. Set `CONTROLLER_IP` to your ESP8266's IPv4 address and `LISTEN_IP` to the Pi's LAN IPv4 address. A DHCP reservation for the Pi keeps the address stable. The supplied loopback address limits the service to the Pi until you edit it.
-3. Disable any Node-RED rotator flow or direct connection to the ESP8266 while using the bridge. On your home network use the Pi's LAN address. For off-site access, reach the Pi over a private VPN and use that address or a VPN route to the Pi's LAN address.
+| Download | What it includes |
+| --- | --- |
+| [BuddiHex Rotator v1.7.1 Universal DMG](./BuddiHex-Rotator-v1.7.1-Universal.dmg?raw=true) | Mac installer for Intel and Apple Silicon |
+| [BuddiHex Rotator v1.7.1 Apple Silicon DMG](./BuddiHex-Rotator-v1.7.1-Apple-Silicon.dmg?raw=true) | Mac installer for Apple Silicon only |
+| [BuddiHex User Guide (PDF)](./BuddiHex-User-Guide.pdf?raw=true) | Mac and Node-RED setup, rotator controls, Raspberry Pi, SmartSDR, and Tailscale |
+| [BuddiHex Node-RED v1.7 flow (JSON)](./BuddyHexNodeRed-v1.7.json?raw=true) | Importable FlowFuse Dashboard 2 flow |
 
-Run from the `Pi` folder:
+## Repository files
 
-```sh
-sudo install -d /opt/buddihex
-sudo install -m 644 buddihex_bridge.py /opt/buddihex/
-sudo install -m 644 buddihex-bridge.conf /etc/default/buddihex-bridge
-sudo install -m 644 buddihex-bridge.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now buddihex-bridge
-sudo systemctl status buddihex-bridge --no-pager
-```
+| File | Purpose |
+| --- | --- |
+| `BuddiHex-Rotator-v1.7.1-Universal.dmg` | The Universal Mac app and Applications shortcut |
+| `BuddiHex-Rotator-v1.7.1-Apple-Silicon.dmg` | The Apple Silicon Mac app and Applications shortcut |
+| `BuddiHex-User-Guide.pdf` | Installation, configuration, everyday operation, and troubleshooting |
+| `BuddyHexNodeRed-v1.7.json` | Node-RED flow with a compass, live status, heading controls, STOP, callsign lookup, and Country List updates |
+| [`Pi/buddihex_bridge.py`](Pi/buddihex_bridge.py) | Python service that links BuddiHex and Hamlib rotctld clients to the ESP8266 |
+| [`Pi/buddihex-bridge.conf`](Pi/buddihex-bridge.conf) | Example bridge configuration for the controller address, listen address, and ports |
+| [`Pi/buddihex-bridge.service`](Pi/buddihex-bridge.service) | systemd service definition for starting the bridge at boot |
 
-To change the configuration after installation, edit `/etc/default/buddihex-bridge`, then run `sudo systemctl restart buddihex-bridge`. View service output with `journalctl -u buddihex-bridge -n 30 --no-pager`. The bridge uses standard Python 3 libraries. It accepts TCP on 4533 by default, sends UDP to the ESP8266 on 4210, and listens for its replies on UDP 4211.
+## Quick start
 
-## Connect both Mac apps
+### Mac app
 
-- **BuddiHex v1.7** — Open the Apple Silicon or Universal app. In Settings, enter the Pi hostname or IP and TCP port 4533 under Controller. Save and click Connect. Leave the Pi hostname blank to switch back to direct ESP8266 UDP. The optional local Hamlib server is unnecessary when SmartSDR connects to the Pi.
-- **SmartSDR for Mac** — In Settings → Rotator, select Hamlib rotctld. Enter the Pi's address and port 4533. Use azimuth range 0–360° and leave elevation off. Open View → Rotator, connect, and check that the bearing matches BuddiHex.
-- Before relying on automatic turning, check a short move and STOP with both apps displaying the same live bearing. Use one app at a time to issue movement commands. The ESP8266 firmware controls travel routing and north calibration.
+Requires macOS 13 or later. Open the DMG and drag **BuddiHex Rotator** into Applications. Under **Settings → Controller**, select **Direct to rotator (UDP)** and enter the ESP8266 address, or select **Raspberry Pi bridge (TCP)** and enter the Pi address and port **4533**. Save, click **Connect**, and verify the current bearing before moving the antenna. These builds are ad hoc signed and lack Apple notarization.
 
-A read-only check from a Mac terminal:
+### Node-RED
 
-```sh
-printf 'p\nq\n' | nc -w 3 PI_ADDRESS 4533
-```
+Install **FlowFuse Dashboard 2**, import the JSON, and open its **CONFIG** Function node. Set `connectionType` to `"direct"` for the ESP8266 or `"remote"` for the Pi bridge or a standard Hamlib rotctld server. Edit the matching address and ports, then deploy and open `/dashboard/page1` on your Node-RED host.
 
-Expect azimuth and elevation on separate lines. Elevation is zero. `RPRT -5` means the bridge lacks fresh, fault-free position feedback. Movement and stop acknowledgements confirm that the bridge submitted a UDP command. Use current rotor feedback to verify the motor's response.
+The panel shows **Direct** in blue or **Remote** in green. Standard Hamlib provides bearing, turn, and stop. Use the BuddiHex Pi bridge or a direct connection for full controller feedback and Set North.
 
-## Build and verification
+### Raspberry Pi bridge
 
-Mac source is in `Mac`. Run `bash build.sh` there with Xcode Command Line Tools to build Universal and Apple Silicon versions. Existing station and controller settings are retained. See `Mac/README-v1.6.md` for existing app features and direct controller setup.
+Follow the [PDF guide](./BuddiHex-User-Guide.pdf?raw=true) to install the Python service and systemd unit. The bridge listens on **TCP 4533** and uses UDP **4210** for ESP8266 commands and **4211** for replies. SmartSDR connects using **Hamlib rotctld**. The guide also covers access over Tailscale.
+
+Use one client to talk directly to the ESP8266, or connect your clients through the Pi bridge and issue movement commands from one client at a time.

@@ -2,6 +2,17 @@
 
 Control a BuddiHex R4 antenna rotator from a native macOS app or a Node-RED Dashboard 2 panel. Both interfaces show the current bearing, support manual and preset headings, and can look up a bearing by callsign using QRZ or the DXCC country list.
 
+## Notice
+
+These applications are intended to be used with the Buddihex Rotator created by NT8B, KD4MM and KA4CDN.
+
+- [3D Printer Files](https://www.printables.com/model/960091-mastwerks-buddihex-remote-mast-rotator-v2)
+- [PC Board](https://www.pcbway.com/project/shareproject/MastWerks_BuddiHex_Remote_Mast_Rotator_Control_Board_v1_1_d22fbad5.html)
+- [Firmware](https://github.com/mdannhardt/rotatorControllerESP8266)
+- [Windows App](https://github.com/mdannhardt/HexbeamRotatorControl)
+
+This application is not compatible with the Mastwerks rotator engineered and distributed by Buddipole / Mastwerks.
+
 ## Downloads
 
 | Download | What it includes |
@@ -22,6 +33,16 @@ Control a BuddiHex R4 antenna rotator from a native macOS app or a Node-RED Dash
 | [`Pi/buddihex_bridge.py`](Pi/buddihex_bridge.py) | Python service that links BuddiHex and Hamlib rotctld clients to the ESP8266 |
 | [`Pi/buddihex-bridge.conf`](Pi/buddihex-bridge.conf) | Example bridge configuration for the controller address, listen address, and ports |
 | [`Pi/buddihex-bridge.service`](Pi/buddihex-bridge.service) | systemd service definition for starting the bridge at boot |
+
+## Screenshots
+
+### BuddiHex for macOS
+
+![BuddiHex for macOS](./images/buddidex_rotator_mac.png)
+
+### BuddiHex Node-RED Dashboard
+
+![BuddiHex Node-RED Dashboard](./images/buddidex_rotator_node_red.png)
 
 ## Quick start
 
